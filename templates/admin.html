@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Admin Panel</h1>
+    <p class="subtitle">Platform-wide stats — visible only to admins</p>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <span class="stat-value">{{ total_users }}</span>
+        <span class="stat-label">Total Users</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ total_docs }}</span>
+        <span class="stat-label">Total Documents Uploaded</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ total_questions }}</span>
+        <span class="stat-label">Total Questions Asked</span>
+    </div>
+</div>
+
+<div class="card">
+    <h2 class="card-title">Users</h2>
+    <div style="overflow-x: auto;">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Joined</th>
+                    <th>Documents</th>
+                    <th>Questions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in user_stats %}
+                <tr>
+                    <td>{{ u.username }}</td>
+                    <td>{{ u.email }}</td>
+                    <td>{% if u.is_admin %}<span class="badge badge-admin">Admin</span>{% else %}User{% endif %}</td>
+                    <td>{{ u.joined.strftime('%d %b %Y') }}</td>
+                    <td>{{ u.doc_count }}</td>
+                    <td>{{ u.question_count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

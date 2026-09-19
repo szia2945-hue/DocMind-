@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Question History</h1>
+    <p class="subtitle">All your past questions and answers</p>
+</div>
+
+<div class="history-toolbar">
+    <a href="{{ url_for('main.export_history') }}" class="btn btn-primary">Export as CSV</a>
+</div>
+
+{% if history %}
+<div class="history-list">
+    {% for record in history %}
+    <div class="history-card">
+        <div class="history-card-header">
+            <span class="history-date">{{ record.created_at.strftime('%d %b %Y, %H:%M') }}</span>
+            <form method="POST" action="{{ url_for('main.delete_history', record_id=record.id) }}" onsubmit="return confirm('Delete this record?');">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+            </form>
+        </div>
+        <p class="history-question"><strong>Q:</strong> {{ record.question }}</p>
+        <p class="history-answer"><strong>A:</strong> {{ record.answer }}</p>
+
+        {% set sources = record.get_sources() %}
+        {% if sources %}
+        <div class="chat-sources-list">
+            {% for s in sources %}
+            <button type="button" class="source-btn" onclick="openPdfPreview({{ s.document_id }}, {{ s.page }}, '{{ s.filename|replace("'", "") }}')">
+                {{ s.filename }} · p.{{ s.page }}
+            </button>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">No history yet. Go to the Chat page to ask your first question!</p>
+{% endif %}
+
+<!-- ===== PDF Page Preview Modal (History page bhi ye use karta hai) ===== -->
+<div class="pdf-modal-overlay" id="pdf-modal-overlay">
+    <div class="pdf-modal-box">
+        <div class="pdf-modal-header">
+            <strong id="pdf-modal-title">Page preview</strong>
+            <button type="button" class="btn btn-sm btn-ghost" id="pdf-modal-close">Close ✕</button>
+        </div>
+        <div class="pdf-modal-canvas-wrap" id="pdf-modal-canvas-wrap">
+            <p class="pdf-modal-loading" id="pdf-modal-loading">Loading page...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    const modalOverlay = document.getElementById('pdf-modal-overlay');
+    const modalCanvasWrap = document.getElementById('pdf-modal-canvas-wrap');
+    const modalTitle = document.getElementById('pdf-modal-title');
+    const modalClose = document.getElementById('pdf-modal-close');
+    const pdfDocCache = {};
+
+    async function openPdfPreview(documentId, pageNumber, filename) {
+        modalOverlay.classList.add('open');
+        modalTitle.textContent = `${filename} — Page ${pageNumber}`;
+        modalCanvasWrap.innerHTML = '<p class="pdf-modal-loading">Loading page...</p>';
+
+        try {
+            let pdfDoc = pdfDocCache[documentId];
+            if (!pdfDoc) {
+                pdfDoc = await pdfjsLib.getDocument(`/document/${documentId}/file`).promise;
+                pdfDocCache[documentId] = pdfDoc;
+            }
+            const page = await pdfDoc.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 1.4 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            await page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+            modalCanvasWrap.innerHTML = '';
+            modalCanvasWrap.appendChild(canvas);
+        } catch (err) {
+            modalCanvasWrap.innerHTML = `<p class="pdf-modal-loading">Could not load preview: ${err.message}</p>`;
+        }
+    }
+
+    modalClose.addEventListener('click', () => modalOverlay.classList.remove('open'));
+    modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('open'); });
+</script>
+{% endblock %}

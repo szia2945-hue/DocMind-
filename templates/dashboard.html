@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p class="subtitle">Ask your documents anything</p>
+</div>
+
+<!-- ===== Statistics cards ===== -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <span class="stat-value">{{ total_docs }}</span>
+        <span class="stat-label">Documents Uploaded</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-value">{{ total_questions }}</span>
+        <span class="stat-label">Questions Asked</span>
+    </div>
+</div>
+
+<div class="dashboard-grid">
+    <!-- ===== Upload section ===== -->
+    <div class="card">
+        <h2 class="card-title">Upload a PDF</h2>
+        <form method="POST" action="{{ url_for('main.upload_document') }}" enctype="multipart/form-data" id="upload-form">
+            <div class="upload-dropzone" id="dropzone">
+                <input type="file" name="pdf_file" id="pdf_file" accept=".pdf" required>
+                <p id="dropzone-text">Click to choose a PDF file (max 10 MB)</p>
+            </div>
+            <button type="submit" class="btn btn-primary btn-block" id="upload-btn">
+                <span id="upload-btn-text">Upload & Process</span>
+            </button>
+            <div class="loading-spinner" id="upload-loading" style="display:none;">
+                Processing your PDF (extracting text, generating embeddings)...
+            </div>
+        </form>
+    </div>
+
+    <!-- ===== Documents list ===== -->
+    <div class="card">
+        <h2 class="card-title">Your Documents</h2>
+        {% if documents %}
+        <ul class="doc-list">
+            {% for doc in documents %}
+            <li class="doc-item">
+                <div class="doc-info">
+                    <span class="doc-name">{{ doc.filename }}</span>
+                    <span class="doc-meta">{{ doc.page_count }} pages · {{ doc.chunk_count }} chunks · {{ doc.uploaded_at.strftime('%d %b %Y') }}</span>
+                    {% if doc.summary %}
+                    <span class="doc-summary">{{ doc.summary }}</span>
+                    {% endif %}
+                </div>
+                <div class="doc-actions">
+                    <a href="{{ url_for('main.chat_page') }}" class="btn btn-sm btn-ghost">Chat</a>
+                    <form method="POST" action="{{ url_for('main.delete_document', doc_id=doc.id) }}" onsubmit="return confirm('Delete this document and all its data?');" style="display:inline;">
+                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                    </form>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty-state">No documents yet. Upload your first PDF to get started!</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ===== Recent chats ===== -->
+<div class="card">
+    <h2 class="card-title">Recent Questions</h2>
+    {% if recent_chats %}
+    <ul class="chat-preview-list">
+        {% for chat in recent_chats %}
+        <li class="chat-preview-item">
+            <p class="chat-q">Q: {{ chat.question }}</p>
+            <p class="chat-a">A: {{ chat.answer[:150] }}{% if chat.answer|length > 150 %}...{% endif %}</p>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{{ url_for('main.history') }}" class="link-more">View full history →</a>
+    {% else %}
+    <p class="empty-state">No questions asked yet.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Upload form submit hone par loading state dikhao
+    const uploadForm = document.getElementById('upload-form');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function () {
+            document.getElementById('upload-btn').disabled = true;
+            document.getElementById('upload-btn-text').textContent = 'Processing...';
+            document.getElementById('upload-loading').style.display = 'block';
+        });
+    }
+
+    // Dropzone pe file select hone par naam dikhao
+    const fileInput = document.getElementById('pdf_file');
+    if (fileInput) {
+        fileInput.addEventListener('change', function () {
+            if (fileInput.files.length > 0) {
+                document.getElementById('dropzone-text').textContent = fileInput.files[0].name;
+            }
+        });
+    }
+</script>
+{% endblock %}

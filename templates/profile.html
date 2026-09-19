@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Your Profile</h1>
+    <p class="subtitle">{{ current_user.username }} · {{ current_user.email }}</p>
+</div>
+
+<div class="profile-stats">
+    <div class="profile-stat">
+        <span class="stat-value">{{ doc_count }}</span>
+        <span class="stat-label">Documents</span>
+    </div>
+    <div class="profile-stat">
+        <span class="stat-value">{{ question_count }}</span>
+        <span class="stat-label">Questions Asked</span>
+    </div>
+    {% if current_user.is_admin %}
+    <div class="profile-stat">
+        <span class="badge badge-admin">Admin</span>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card" style="max-width: 420px;">
+    <h2 class="card-title">Change Password</h2>
+    <form method="POST" action="{{ url_for('main.profile') }}">
+        <div class="form-group">
+            <label for="current_password">Current Password</label>
+            <input type="password" id="current_password" name="current_password" required>
+        </div>
+        <div class="form-group">
+            <label for="new_password">New Password</label>
+            <input type="password" id="new_password" name="new_password" required placeholder="At least 6 characters">
+        </div>
+        <div class="form-group">
+            <label for="confirm_password">Confirm New Password</label>
+            <input type="password" id="confirm_password" name="confirm_password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Update Password</button>
+    </form>
+</div>
+{% endblock %}

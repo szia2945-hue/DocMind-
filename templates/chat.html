@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block title %}Chat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Chat with your documents</h1>
+    <p class="subtitle">Select one or more documents and ask a question below (English or Urdu)</p>
+</div>
+
+<div class="chat-container">
+    <div class="chat-toolbar" style="flex-wrap: wrap;">
+        <label>Documents:</label>
+        <div class="doc-checkbox-list" id="doc-checkbox-list">
+            {% for doc in documents %}
+            <label class="doc-checkbox-item" data-doc-id="{{ doc.id }}">
+                <input type="checkbox" class="doc-checkbox" value="{{ doc.id }}" data-filename="{{ doc.filename }}">
+                {{ doc.filename }}
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="chat-window" id="chat-window">
+        <div class="chat-message chat-message-bot">
+            <p>Hi! I'm DocMind. Select one or more documents above, then ask me anything — in English or Urdu — and I'll answer using their content, with clickable page citations.</p>
+        </div>
+    </div>
+
+    <form id="chat-form" class="chat-input-form">
+        <button type="button" class="mic-btn" id="mic-btn" title="Ask by voice">🎤</button>
+        <input type="text" id="question-input" placeholder="Ask a question about your document(s)..." autocomplete="off" required>
+        <button type="submit" class="btn btn-primary" id="chat-send-btn">Send</button>
+    </form>
+</div>
+
+<!-- ===== PDF Page Preview Modal ===== -->
+<div class="pdf-modal-overlay" id="pdf-modal-overlay">
+    <div class="pdf-modal-box">
+        <div class="pdf-modal-header">
+            <strong id="pdf-modal-title">Page preview</strong>
+            <button type="button" class="btn btn-sm btn-ghost" id="pdf-modal-close">Close ✕</button>
+        </div>
+        <div class="pdf-modal-canvas-wrap" id="pdf-modal-canvas-wrap">
+            <p class="pdf-modal-loading" id="pdf-modal-loading">Loading page...</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- pdf.js - PDF page preview render karne ke liye -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    const chatForm = document.getElementById('chat-form');
+    const chatWindow = document.getElementById('chat-window');
+    const questionInput = document.getElementById('question-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    const micBtn = document.getElementById('mic-btn');
+
+    // ===== Multi-document checkbox selection =====
+    // Naye upload kiye gaye document ko default select rakho (sabse pehla)
+    const checkboxes = document.querySelectorAll('.doc-checkbox');
+    if (checkboxes.length > 0) checkboxes[0].checked = true;
+
+    function updateCheckboxStyles() {
+        document.querySelectorAll('.doc-checkbox-item').forEach(function (item) {
+            const cb = item.querySelector('.doc-checkbox');
+            item.classList.toggle('checked', cb.checked);
+        });
+    }
+    updateCheckboxStyles();
+    checkboxes.forEach(cb => cb.addEventListener('change', updateCheckboxStyles));
+
+    function getSelectedDocumentIds() {
+        return Array.from(document.querySelectorAll('.doc-checkbox:checked')).map(cb => parseInt(cb.value));
+    }
+
+    // ===== Chat message rendering =====
+    function appendUserMessage(text) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-message chat-message-user';
+        const p = document.createElement('p');
+        p.textContent = text;
+        msgDiv.appendChild(p);
+        chatWindow.appendChild(msgDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function createBotMessageShell() {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-message chat-message-bot';
+        const p = document.createElement('p');
+        p.className = 'bot-answer-text';
+        p.textContent = '';
+        msgDiv.appendChild(p);
+        chatWindow.appendChild(msgDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+        return { container: msgDiv, textEl: p };
+    }
+
+    function appendSourcesToMessage(container, sources) {
+        if (!sources || sources.length === 0) return;
+        const sourcesDiv = document.createElement('div');
+        sourcesDiv.className = 'chat-sources-list';
+        sources.forEach(function (s) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'source-btn';
+            btn.textContent = `${s.filename} · p.${s.page}`;
+            btn.addEventListener('click', function () {
+                openPdfPreview(s.document_id, s.page, s.filename);
+            });
+            sourcesDiv.appendChild(btn);
+        });
+        container.appendChild(sourcesDiv);
+    }
+
+    // ===== Streaming chat submit (NDJSON) =====
+    chatForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const question = questionInput.value.trim();
+        const documentIds = getSelectedDocumentIds();
+
+        if (!question) return;
+        if (documentIds.length === 0) {
+            alert('Please select at least one document.');
+            return;
+        }
+
+        appendUserMessage(question);
+        questionInput.value = '';
+        sendBtn.disabled = true;
+
+        const { container, textEl } = createBotMessageShell();
+        textEl.textContent = 'Thinking...';
+        let firstToken = true;
+
+        try {
+            const response = await fetch('/api/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: question, document_ids: documentIds })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                textEl.textContent = data.error || 'Something went wrong. Please try again.';
+                sendBtn.disabled = false;
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let lines = buffer.split('\n');
+                buffer = lines.pop(); // incomplete last line ko buffer me rakho
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    let event;
+                    try {
+                        event = JSON.parse(line);
+                    } catch (err) {
+                        continue;
+                    }
+
+                    if (event.type === 'token') {
+                        if (firstToken) {
+                            textEl.textContent = '';
+                            firstToken = false;
+                        }
+                        textEl.textContent += event.text;
+                        chatWindow.scrollTop = chatWindow.scrollHeight;
+                    } else if (event.type === 'done') {
+                        appendSourcesToMessage(container, event.sources);
+                    } else if (event.type === 'error') {
+                        textEl.textContent = event.message;
+                    }
+                }
+            }
+        } catch (err) {
+            textEl.textContent = 'Network error. Please check your connection and try again.';
+        } finally {
+            sendBtn.disabled = false;
+        }
+    });
+
+    // ===== Voice input (Web Speech API) =====
+    let recognition = null;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        // Browser jo bhi default zuban support kare us se shuru karte hain;
+        // user Urdu ya English dono me bol sakta hai, transcript textbox me aa jayega.
+        recognition.lang = 'en-US';
+
+        recognition.onresult = function (event) {
+            const transcript = event.results[0][0].transcript;
+            questionInput.value = transcript;
+        };
+        recognition.onend = function () {
+            micBtn.classList.remove('recording');
+        };
+        recognition.onerror = function () {
+            micBtn.classList.remove('recording');
+        };
+
+        micBtn.addEventListener('click', function () {
+            if (micBtn.classList.contains('recording')) {
+                recognition.stop();
+                return;
+            }
+            micBtn.classList.add('recording');
+            recognition.start();
+        });
+    } else {
+        micBtn.title = 'Voice input not supported in this browser';
+        micBtn.disabled = true;
+    }
+
+    // ===== PDF Page Preview Modal =====
+    const modalOverlay = document.getElementById('pdf-modal-overlay');
+    const modalCanvasWrap = document.getElementById('pdf-modal-canvas-wrap');
+    const modalTitle = document.getElementById('pdf-modal-title');
+    const modalClose = document.getElementById('pdf-modal-close');
+
+    const pdfDocCache = {}; // documentId -> pdf.js document object (avoid re-downloading)
+
+    async function openPdfPreview(documentId, pageNumber, filename) {
+        modalOverlay.classList.add('open');
+        modalTitle.textContent = `${filename} — Page ${pageNumber}`;
+        modalCanvasWrap.innerHTML = '<p class="pdf-modal-loading">Loading page...</p>';
+
+        try {
+            let pdfDoc = pdfDocCache[documentId];
+            if (!pdfDoc) {
+                const fileUrl = `/document/${documentId}/file`;
+                pdfDoc = await pdfjsLib.getDocument(fileUrl).promise;
+                pdfDocCache[documentId] = pdfDoc;
+            }
+
+            const page = await pdfDoc.getPage(pageNumber);
+            const viewport = page.getViewport({ scale: 1.4 });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+            modalCanvasWrap.innerHTML = '';
+            modalCanvasWrap.appendChild(canvas);
+        } catch (err) {
+            modalCanvasWrap.innerHTML = `<p class="pdf-modal-loading">Could not load preview: ${err.message}</p>`;
+        }
+    }
+
+    modalClose.addEventListener('click', function () {
+        modalOverlay.classList.remove('open');
+    });
+    modalOverlay.addEventListener('click', function (e) {
+        if (e.target === modalOverlay) modalOverlay.classList.remove('open');
+    });
+</script>
+{% endblock %}
